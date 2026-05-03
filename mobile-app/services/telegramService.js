@@ -1,83 +1,119 @@
-import 'react-native-get-random-values';
-import { TelegramClient } from 'telegram';
-import { MemorySession } from 'telegram/sessions';
+/**
+ * Telegram Service - Mobile Web
+ * All calls go to local proxy server (localhost:3001)
+ */
 
-const DEFAULT_API_ID = process.env.TELEGRAM_API_ID || 'YOUR_API_ID';
-const DEFAULT_API_HASH = process.env.TELEGRAM_API_HASH || 'YOUR_API_HASH';
+const BASE_URL = 'http://localhost:3001/api';
 
-let client = null;
-let session = null;
-
-export async function initTelegramClient(apiId = DEFAULT_API_ID, apiHash = DEFAULT_API_HASH) {
-  if (!apiId || apiId === 'YOUR_API_ID' || !apiHash || apiHash === 'YOUR_API_HASH') {
-    console.warn('Telegram API credentials are missing. Set TELEGRAM_API_ID and TELEGRAM_API_HASH or update androidintegration.txt.');
-    return null;
-  }
-
-  if (!client) {
-    session = new MemorySession();
-    client = new TelegramClient(session, apiId, apiHash, {
-      connectionRetries: 5,
-    });
-  }
-
-  if (!client.session.authKey) {
-    await client.start({
-      phoneNumber: async () => '',
-      password: async () => '',
-      phoneCode: async () => '',
-    }).catch(() => {
-      console.warn('Telegram auth flow not completed in mobile stub.');
-    });
-  }
-
-  return client;
+async function api(path, options = {}) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error || `Server error ${res.status}`);
+  return data;
 }
 
-export async function getFiles(channel, limit = 50) {
-  if (!client) return [];
-  try {
-    const messages = await client.getMessages(channel, { limit });
-    return messages;
-  } catch (error) {
-    console.warn('getFiles failed', error);
-    return [];
-  }
+// ─── Auth ──────────────────────────────────────────────────────────────────
+
+export async function requestLoginCode(apiId, apiHash, phone) {
+  return api('/auth/request-code', { method: 'POST', body: JSON.stringify({ apiId, apiHash, phone }) });
 }
 
-export async function uploadFile(channel, filePath) {
-  if (!client) return null;
+export async function signInWithCode(apiId, apiHash, phone, code) {
+  const data = await api('/auth/sign-in', { method: 'POST', body: JSON.stringify({ code }) });
+  if (data.session) {
+    localStorage.setItem('tg_session', data.session);
+    localStorage.setItem('tg_api_id', apiId);
+    localStorage.setItem('tg_api_hash', apiHash);
+  }
+  return { success: data.ok && data.nextStep === 'dashboard', nextStep: data.nextStep };
+}
+
+export async function checkPassword(password) {
+  const data = await api('/auth/check-password', { method: 'POST', body: JSON.stringify({ password }) });
+  if (data.session) localStorage.setItem('tg_session', data.session);
+  return { success: true };
+}
+
+export async function restoreSession() {
+  const session = localStorage.getItem('tg_session');
+  const apiId = localStorage.getItem('tg_api_id');
+  const apiHash = localStorage.getItem('tg_api_hash');
+  if (!session || !apiId || !apiHash) return null;
   try {
-    const result = await client.sendFile(channel, { file: filePath });
-    return result;
-  } catch (error) {
-    console.warn('uploadFile failed', error);
+    const data = await api('/auth/restore', { method: 'POST', body: JSON.stringify({ apiId, apiHash, session }) });
+    return data.user;
+  } catch {
+    clearSession();
     return null;
   }
 }
 
-export async function downloadFile(message) {
-  if (!client) return null;
+export async function logout() {
+  await api('/auth/logout', { method: 'POST' }).catch(() => {});
+  clearSession();
+}
+
+// ─── Files ─────────────────────────────────────────────────────────────────
+
+export async function getFiles(entity = 'me', limit = 50) {
+  const data = await api(`/files?entity=${encodeURIComponent(entity)}&limit=${limit}`);
+  return data.files || [];
+}
+
+export async function deleteFile(messageId, folderId = null) {
+  return api('/files/delete', { method: 'POST', body: JSON.stringify({ messageId, folderId }) });
+}
+
+export async function searchFiles(query, folderId = null) {
+  const data = await api(`/files/search?q=${encodeURIComponent(query)}&folderId=${folderId || ''}`);
+  return data.files || [];
+}
+
+// ─── Folders ───────────────────────────────────────────────────────────────
+
+export async function getFolders() {
+  const data = await api('/folders');
+  return data.folders || [];
+}
+
+export async function createFolder(name) {
+  const data = await api('/folders/create', { method: 'POST', body: JSON.stringify({ name }) });
+  return data.folder;
+}
+
+export async function deleteFolder(folderId) {
+  return api('/folders/delete', { method: 'POST', body: JSON.stringify({ folderId }) });
+}
+
+export async function syncFolders() {
+  const data = await api('/folders/sync', { method: 'POST' });
+  return data.folders || [];
+}
+
+// ─── Utils ─────────────────────────────────────────────────────────────────
+
+export function clearSession() {
+  localStorage.removeItem('tg_session');
+  localStorage.removeItem('tg_api_id');
+  localStorage.removeItem('tg_api_hash');
+}
+
+export async function checkServerHealth() {
   try {
-    const file = await client.downloadMedia(message);
-    return file;
-  } catch (error) {
-    console.warn('downloadFile failed', error);
-    return null;
+    const data = await api('/health');
+    return data.ok === true;
+  } catch {
+    return false;
   }
 }
 
-export async function deleteFile(messageIds) {
-  if (!client) return null;
-  try {
-    const result = await client.deleteMessages(messageIds);
-    return result;
-  } catch (error) {
-    console.warn('deleteFile failed', error);
-    return null;
-  }
-}
-
-export function isConnected() {
-  return !!client;
+export function formatSize(bytes) {
+  if (!bytes) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
