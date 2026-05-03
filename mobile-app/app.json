@@ -3,12 +3,16 @@
     "name": "Telegram Drive Mobile",
     "slug": "telegram-drive-mobile",
     "version": "1.0.0",
-    "sdkVersion": "49.0.0",
-    "platforms": ["ios", "android"],
     "orientation": "portrait",
+    "platforms": ["ios", "android"],
+    "assetBundlePatterns": ["**/*"],
     "updates": {
       "fallbackToCacheTimeout": 0
     },
-    "assetBundlePatterns": ["**/*"]
+    "android": {},
+    "ios": {},
+    "extra": {
+      "eas": {}
+    }
   }
 }
