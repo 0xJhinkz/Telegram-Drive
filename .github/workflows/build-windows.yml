@@ -5,10 +5,6 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      release_notes:
-        description: 'Release notes'
-        required: false
 
 permissions:
   contents: write
@@ -16,7 +12,7 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout code
@@ -42,14 +38,34 @@ jobs:
           cd app
           npm ci
 
+      - name: Build frontend
+        run: |
+          cd app
+          npm run build
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli
+
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        run: |
+          cd app
+          tauri build
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          projectPath: './app/src-tauri'
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Release ${{ github.ref_name }}'
-          releaseBody: ${{ github.event.inputs.release_notes }}
-          releaseDraft: false
+          files: |
+            app/src-tauri/target/release/bundle/msi/*.msi
+            app/src-tauri/target/release/bundle/portable/*.exe
+          draft: false
           prerelease: false
+          body: |
+            # Telegram Drive ${{ github.ref_name }}
+
+            ## Download Options:
+            - **MSI Installer** (.msi) - Recommended for most users. Download and run to install.
+            - **Portable Executable** (.exe) - No installation required, just run it.
+
+            Extract the downloaded file and run the installer or executable to get started!
