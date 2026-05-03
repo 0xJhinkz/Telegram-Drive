@@ -1,0 +1,63 @@
+name: Build Mobile APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip wget
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2" "cmdline-tools;latest"
+
+      - name: Cache mobile dependencies
+        uses: actions/cache@v4
+        with:
+          path: mobile-app/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('mobile-app/package-lock.json', 'mobile-app/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install Expo CLI
+        run: npm install -g expo-cli
+
+      - name: Install mobile app dependencies
+        working-directory: mobile-app
+        run: npm ci
+
+      - name: Prebuild Android project
+        working-directory: mobile-app
+        run: npx expo prebuild --platform android --no-install --yes
+
+      - name: Build APK
+        working-directory: mobile-app/android
+        run: ./gradlew assembleRelease
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-drive-mobile-apk
+          path: mobile-app/android/app/build/outputs/apk/release/app-release.apk
