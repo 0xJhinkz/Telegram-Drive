@@ -42,7 +42,7 @@ jobs:
       - name: Setup Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: './src-tauri'
+          workspaces: './app/src-tauri'
 
       - name: Install dependencies (Ubuntu)
         if: runner.os == 'Linux'
@@ -60,7 +60,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          projectPath: './src-tauri'
+          projectPath: './app/src-tauri'
           tagName: ${{ github.ref_name }}
           releaseName: 'Release ${{ github.ref_name }}'
           releaseBody: ${{ github.event.inputs.release_notes }}
@@ -71,4 +71,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: src-tauri/target/release/bundle/
+          path: app/src-tauri/target/release/bundle/
